@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset='utf-8'>
+	<title>bungled98</title>
+<script type="importmap">
+  {
+    "imports": {
+      "preact": "https://esm.sh/preact@10.19.6",
+      "preact/": "https://esm.sh/preact@10.19.6/",
+      "htm/preact": "https://esm.sh/htm@3.1.1/preact?external=preact",
+      "gapless-5": "https://esm.sh/@regosen/gapless-5@1.5.0"
+    }
+  }
+</script>
+<!--
+  the gapless5 gui is broken when importing it as a module.
+  once we're no longer using the gui we should be ok to switch
+  back to the module.
+-->
+<link href="gapless5.css" rel="stylesheet" type="text/css" />
+<script src='./gapless5.js'></script>
+<script type="module">
+import { render } from 'preact'
+import { useReducer, useState, useEffect } from 'preact/hooks'
+import { html } from 'htm/preact'
+// import { Gapless5 } from 'gapless-5';
+
+const playerGui = document.createElement('div')
+playerGui.id = 'gapless-5-player-ui'
+document.body.appendChild(playerGui)
+const PLAYER = new Gapless5({guiId: playerGui.id, loadLimit: 3})
+
+class FileSystem {
+  constructor (metaRoot, musicRoot) {
+    this._metaRoot = metaRoot
+    this._musicRoot = musicRoot
+
+    this._loadPromise = {}
+  }
+
+  _metaPath (path) {
+    return `${this._metaRoot}/${this.joinPath(path, 'meta.json')}`
+  }
+
+  _songPath (path, name) {
+    return `${this._musicRoot}/${this.joinPath(path, name)}`
+  }
+
+  joinPath (path, next) {
+    return path === '' ? next : `${path}/${next}`
+  }
+
+  get (path) {
+    if (this._loadPromise[path] === undefined) {
+      this._loadPromise[path] = this._load(path)
+    }
+    return this._loadPromise[path]
+  }
+
+  async getTracks (path) {
+    const { songs } = await this.get(path)
+    return songs.map(song => this._songPath(path, song.name))
+  }
+
+  async getTracksRecursively (path) {
+    const root = await this.get(path),
+      rootTracks = await this.getTracks(path),
+      childTracks = await Promise.all(
+        root.folders.map(folder => this.getTracksRecursively(this.joinPath(path, folder)))
+      )
+    return rootTracks.concat(childTracks.flat())
+  }
+
+  async _load (path) {
+    const response = await fetch(this._metaPath(path)),
+      json = await response.json()
+    return json
+  }
+}
+
+const FS = new FileSystem('../meta', '../music')
+
+function Tree({ path }) {
+  const isRoot = (path === ''),
+    pathParts = path.split('/'),
+    displayName = isRoot ? '[root]' : pathParts[pathParts.length - 1]
+  const [expanded, setExpanded] = useState(isRoot)
+  const [data, setData] = useState(null)
+
+  useEffect(() => {
+    if (!expanded || (data !== null)) {
+      return
+    }
+
+    FS.get(path).then(setData)
+  }, [path, expanded])
+
+  const toggleExpanded = () => setExpanded(!expanded)
+
+  const enqueue = (recurse) => {
+    const trackPromise = recurse ? FS.getTracksRecursively(path) : GS.getTracks(path)
+    trackPromise.then(tracks => tracks.forEach(PLAYER.addTrack))
+  }
+
+  return html`
+    <button onClick=${toggleExpanded}>${expanded ? '-' : '+'}</button>
+    <span onDblClick=${() => enqueue(true)}>${displayName}</span>
+    <ul style=${!expanded ? 'display: none' : ''}>
+      ${
+        data
+        ? html`
+            ${data.songs.length ? html`<li key='__songs' onDblClick=${() => enqueue(false)}>${data.songs.length} songs</li>` : null}
+            ${data.folders.map((folder) => html`<li key=${folder}><${Tree} path=${FS.joinPath(path, folder)} /></li>`)}
+          `
+        : html`<li key='__loading'>Loading...</li>`
+      }
+    </ul>
+  `
+}
+
+export function App() {
+  return html`
+    <${Tree} path='' />
+  `;
+}
+
+render(html`<${App} />`, document.body)
+</script>
+</head>
+<body>
+</body>
+</html>
