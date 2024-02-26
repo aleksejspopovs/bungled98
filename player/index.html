@@ -99,7 +99,7 @@ function Tree({ path }) {
   const toggleExpanded = () => setExpanded(!expanded)
 
   const enqueue = (recurse) => {
-    const trackPromise = recurse ? FS.getTracksRecursively(path) : GS.getTracks(path)
+    const trackPromise = recurse ? FS.getTracksRecursively(path) : FS.getTracks(path)
     trackPromise.then(tracks => tracks.forEach(PLAYER.addTrack))
   }
 
